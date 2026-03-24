@@ -90,17 +90,17 @@ def estimate_base_growth(snapshot_metrics, margin_report):
     operating_margin = snapshot_metrics.get("Operating Margin")
     trend = margin_report.get("Trend Direction")
 
+    base = 0.04
+
     if trend == "Expansion":
-        return 0.06
+        base += 0.01
+    elif trend == "Compression":
+        base -= 0.01
 
-    if trend == "Compression":
-        return 0.03
+    if operating_margin:
+        base += (operating_margin - 0.15) * 0.1
 
-    if operating_margin and operating_margin > 0.15:
-        return 0.07
-
-    return 0.04
-
+    return max(min(base, 0.10), 0.02)
 
 # ------------------------------------------------
 # 5. Discount Rate (CAPM + Internal Risk Layer)

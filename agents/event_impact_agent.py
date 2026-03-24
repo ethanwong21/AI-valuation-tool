@@ -5,24 +5,29 @@ def map_event_to_impact(event):
     Convert a single event into SMALL financial adjustments
     """
 
-    event_type = event.get("Event Type")
+    event_type = (event.get("Event Type") or "").lower()
     risk_score = event.get("Event Risk Score", 50)
 
     growth_adj = 0
     discount_adj = 0
 
-    # Much smaller base impacts
-    if event_type == "Debt Issuance":
-        discount_adj += 0.002
-
-    elif event_type == "Acquisition":
+    # -----------------------------
+    # GROWTH EVENTS
+    # -----------------------------
+    if "acquisition" in event_type:
         growth_adj += 0.003
         discount_adj += 0.001
 
-    elif event_type == "Governance Change":
+    # -----------------------------
+    # DISCOUNT / RISK EVENTS
+    # -----------------------------
+    if "debt" in event_type:
+        discount_adj += 0.002
+
+    elif "governance" in event_type:
         discount_adj += 0.001
 
-    elif event_type == "Legal Proceeding":
+    elif "legal" in event_type:
         discount_adj += 0.003
 
     return {
@@ -50,8 +55,13 @@ def aggregate_event_impacts(event_report):
     # Normalize (average effect)
     # ----------------------------
     if event_count > 0:
-        total_growth /= event_count
-        total_discount /= event_count
+
+        import math
+
+        scale = min(math.sqrt(event_count), 10)
+
+        total_growth /= scale
+        total_discount /= scale
 
     # ----------------------------
     # Cap impacts (VERY IMPORTANT)

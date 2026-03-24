@@ -9,18 +9,11 @@ CONCEPT_TAGS = {
         "SalesRevenueNet",
         "RevenueFromContractWithCustomerExcludingAssessedTax"
     ],
-    "cogs": [
-        "CostOfGoodsAndServicesSold",
-        "CostOfRevenue",
-        "CostOfProductsSold"
-    ],
     "operating_income": [
         "OperatingIncomeLoss",
         "OperatingIncome"
     ]
 }
-
-
 # -----------------------------
 # Generic Extractor
 # -----------------------------
@@ -49,7 +42,7 @@ def get_concept_value(facts_json, concept_keywords):
 
 
 # -----------------------------
-# Free Cash Flow (ROBUST)
+# Free Cash Flow
 # -----------------------------
 def extract_free_cash_flow(facts_json):
 
@@ -120,114 +113,6 @@ def extract_free_cash_flow(facts_json):
 
 
 # -----------------------------
-# MAIN ANALYSIS (FIXED)
-# -----------------------------
-def analyze_filing(facts_json):
-
-    print("Extracting structured financial metrics...")
-
-    # -------- Income Statement --------
-    revenue = get_concept_value(
-        facts_json,
-        ["revenues", "salesrevenue", "revenuefromcontractwithcustomer"]
-    )
-
-    if revenue is not None:
-        revenue = abs(revenue)  # FIX SIGN
-
-    cogs = get_concept_value(
-        facts_json,
-        ["costofgoods", "costofrevenue"]
-    )
-
-    if cogs is not None:
-        cogs = abs(cogs)
-
-    operating_income = get_concept_value(
-        facts_json,
-        [
-            "operatingincomeloss",
-            "operatingincome",
-            "incomefromoperations"
-        ]
-    )
-
-    # ----------------------------
-    # 🚨 Ignore unreliable Operating Income
-    # ----------------------------
-    if operating_income is not None and revenue is not None:
-        if operating_income < 0 or operating_income < (0.05 * revenue):
-            print("⚠️ Ignoring unreliable Operating Income:", operating_income)
-            operating_income = None
-    
-    # -------- Balance Sheet --------
-    accounts_receivable = get_concept_value(facts_json, ["receivable"])
-    inventory = get_concept_value(facts_json, ["inventory"])
-    accounts_payable = get_concept_value(facts_json, ["payable"])
-
-    # -------- Derived Metrics --------
-    gross_profit = None
-    if revenue is not None and cogs is not None:
-        gross_profit = revenue - cogs
-
-    # -------- SAFE MARGINS --------
-    gross_margin = None
-    if revenue and revenue > 0 and gross_profit is not None:
-        gross_margin = gross_profit / revenue
-
-    operating_margin = None
-    if revenue and revenue > 0 and operating_income is not None:
-        operating_margin = operating_income / revenue
-
-    # sanity filter
-    if operating_margin is not None:
-        if operating_margin < -1 or operating_margin > 1:
-            print("⚠️ Invalid Operating Margin:", operating_margin)
-            operating_margin = None
-
-    # -------- Working Capital --------
-    dso = None
-    if accounts_receivable and revenue and revenue > 0:
-        dso = (accounts_receivable / revenue) * 365
-
-    dio = None
-    if inventory and cogs and cogs > 0:
-        dio = (inventory / cogs) * 365
-
-    dpo = None
-    if accounts_payable and cogs and cogs > 0:
-        dpo = (accounts_payable / cogs) * 365
-
-    ccc = None
-    if dso is not None and dio is not None and dpo is not None:
-        ccc = dso + dio - dpo
-
-    # -------- FCF --------
-    free_cash_flow = extract_free_cash_flow(facts_json)
-    print("DEBUG FCF:", free_cash_flow)
-
-    return {
-        "Revenue": revenue,
-        "COGS": cogs,
-        "Gross Profit": gross_profit,
-        "Operating Income": operating_income,
-        "Accounts Receivable": accounts_receivable,
-        "Inventory": inventory,
-        "Accounts Payable": accounts_payable,
-
-        "Gross Margin": gross_margin,
-        "Operating Margin": operating_margin,
-
-        "DSO": dso,
-        "DIO": dio,
-        "DPO": dpo,
-        "Cash Conversion Cycle": ccc,
-
-        "Free Cash Flow": free_cash_flow
-    }
-
-
-# -----------------------------
 # TIME SERIES HELPERS
 # -----------------------------
 def get_time_series_usd(facts, tag):
@@ -238,7 +123,7 @@ def get_time_series_usd(facts, tag):
 
 
 # -----------------------------
-# MARGIN SERIES (RESTORED + FIXED)
+# MARGIN SERIES (RESTORED)
 # -----------------------------
 def extract_margin_series(facts_json):
 
@@ -277,7 +162,6 @@ def extract_margin_series(facts_json):
 
             margin = op_income / revenue
 
-            # sanity filter
             if -1 < margin < 1:
                 margins.append({
                     "period_end": r["end"],
@@ -287,3 +171,110 @@ def extract_margin_series(facts_json):
     margins.sort(key=lambda x: x["period_end"])
 
     return margins
+
+
+# -----------------------------
+# MAIN ANALYSIS 
+# -----------------------------
+def analyze_filing(facts_json):
+
+    print("Extracting structured financial metrics...")
+
+    # -------- Revenue --------
+    revenue = get_concept_value(
+        facts_json,
+        ["revenues", "salesrevenue", "revenuefromcontractwithcustomer"]
+    )
+
+    if revenue is not None:
+        revenue = abs(revenue)
+
+    # ----------------------------
+    # COGS (PRIORITY FIX)
+    # ----------------------------
+    cogs = None
+
+    # 1️⃣ Best tag (CRITICAL)
+    cogs = get_concept_value(facts_json, ["costofrevenue"])
+
+    # 2️⃣ Fallbacks
+    if cogs is None:
+        cogs = get_concept_value(facts_json, ["costofgoodsandservicessold"])
+
+    if cogs is None:
+        cogs = get_concept_value(facts_json, ["costofproductsold"])
+
+    if cogs is not None:
+        cogs = abs(cogs)
+
+    # -------- Operating Income --------
+    operating_income = get_concept_value(
+        facts_json,
+        ["operatingincomeloss", "operatingincome", "incomefromoperations"]
+    )
+
+    #Ignore unreliable operating income
+    if operating_income is not None and revenue is not None:
+        if operating_income < 0 or operating_income < (0.05 * revenue):
+            print("⚠️ Ignoring unreliable Operating Income:", operating_income)
+            operating_income = None
+
+    # -------- Derived --------
+    gross_profit = None
+    if revenue is not None and cogs is not None:
+        gross_profit = revenue - cogs
+
+    gross_margin = None
+    if revenue and revenue > 0 and gross_profit is not None:
+        gross_margin = gross_profit / revenue
+
+    #detect unreliable data
+    if gross_margin is not None and gross_margin > 0.7:
+        print("⚠️ Unrealistic gross margin detected:", gross_margin)
+
+    operating_margin = None
+    if revenue and revenue > 0 and operating_income is not None:
+        operating_margin = operating_income / revenue
+
+    #detect unreliable data
+    if operating_margin is not None:
+        if operating_margin < -1 or operating_margin > 1:
+            print("⚠️ Invalid Operating Margin:", operating_margin)
+            operating_margin = None
+
+    # -------- Balance Sheet --------
+    accounts_receivable = get_concept_value(facts_json, ["receivable"])
+    inventory = get_concept_value(facts_json, ["inventory"])
+    accounts_payable = get_concept_value(facts_json, ["payable"])
+
+    # -------- Working Capital --------
+    dso = (accounts_receivable / revenue * 365) if accounts_receivable and revenue else None
+    dio = (inventory / cogs * 365) if inventory and cogs else None
+    dpo = (accounts_payable / cogs * 365) if accounts_payable and cogs else None
+
+    ccc = None
+    if dso is not None and dio is not None and dpo is not None:
+        ccc = dso + dio - dpo
+
+    # -------- FCF --------
+    free_cash_flow = extract_free_cash_flow(facts_json)
+
+    return {
+        "Revenue": revenue,
+        "COGS": cogs,
+        "Gross Profit": gross_profit,
+        "Operating Income": operating_income,
+        "Accounts Receivable": accounts_receivable,
+        "Inventory": inventory,
+        "Accounts Payable": accounts_payable,
+
+        "Gross Margin": gross_margin,
+        "Operating Margin": operating_margin,
+
+        "DSO": dso,
+        "DIO": dio,
+        "DPO": dpo,
+        "Cash Conversion Cycle": ccc,
+
+        "Free Cash Flow": free_cash_flow
+    }

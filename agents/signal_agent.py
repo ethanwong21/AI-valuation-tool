@@ -10,7 +10,7 @@ def generate_investment_signal(valuation_output, market_data, inputs):
     # Convert to per-share value
     intrinsic_per_share = intrinsic_value / shares_outstanding
     
-    growth = valuation_output.get("Growth Used")
+    growth = valuation_output.get("Stage 1 Growth")
     discount = valuation_output.get("Discount Used")
 
     raw_erp = inputs.get("Raw ERP (Market Signal)")

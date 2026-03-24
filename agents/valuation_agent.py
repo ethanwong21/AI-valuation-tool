@@ -1,170 +1,227 @@
+def estimate_roic(snapshot_metrics):
+    """
+    Approximate ROIC using available data
+    ROIC ≈ NOPAT / Invested Capital
+    """
+
+    op_income = snapshot_metrics.get("Operating Income")
+    tax_rate = 0.21
+
+    if not op_income:
+        return None
+
+    nopat = op_income * (1 - tax_rate)
+
+    # Proxy invested capital (VERY IMPORTANT)
+    # Using working capital approximation
+    ar = snapshot_metrics.get("Accounts Receivable") or 0
+    inv = snapshot_metrics.get("Inventory") or 0
+    ap = snapshot_metrics.get("Accounts Payable") or 0
+
+    invested_capital = ar + inv - ap
+
+    # Avoid division issues
+    if invested_capital <= 0:
+        return None
+
+    roic = nopat / invested_capital
+
+    # sanity bounds
+    return max(min(roic, 0.50), -0.10)
+
+def estimate_reinvestment_rate(snapshot_metrics):
+    """
+    Reinvestment ≈ CapEx / Operating Cash Flow
+    Fallback using FCF behavior
+    """
+
+    fcf = snapshot_metrics.get("Free Cash Flow")
+    op_income = snapshot_metrics.get("Operating Income")
+
+    if not fcf or not op_income:
+        return 0.5  # neutral assumption
+
+    # If FCF is low relative to income → high reinvestment
+    ratio = fcf / op_income
+
+    reinvestment = 1 - ratio
+
+    # clamp
+    return max(min(reinvestment, 0.80), 0.10)
+
+
+
 def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
     """
-    Multi-year DCF valuation engine with event-adjusted assumptions
+    Analyst-grade 2-stage DCF
     """
 
     # -----------------------------
-    # 1️⃣ Extract Inputs
+    # 1️⃣ Inputs
     # -----------------------------
     base_growth = data_inputs.get("Base Growth Rate")
-    base_discount = data_inputs.get("Base Discount Rate")
+
+    risk_free = data_inputs.get("Risk Free Rate")
+    beta = data_inputs.get("Beta")
+    erp = data_inputs.get("Adjusted ERP (Used)")
 
     event_growth_adj = event_impact.get("Total Growth Adjustment", 0)
     event_discount_adj = event_impact.get("Total Discount Adjustment", 0)
 
-    # -----------------------------
-    # 2️⃣ Apply Adjustments
-    # -----------------------------
-    
-    growth = base_growth + event_growth_adj
-    discount = base_discount + event_discount_adj
-
-    # -----------------------------
-    # Forward-looking adjustments
-    # -----------------------------
-
-    # Profitability signal
     op_margin = snapshot_metrics.get("Operating Margin")
 
-    #temp debug
-    print("DEBUG op_margin:", op_margin)
-
-    if op_margin is not None:
-
-        # -----------------------------
-        # Growth adjustments (quality-driven)
-        # -----------------------------
-        if op_margin > 0.25:
-            growth += 0.02
-            growth = max(growth, 0.06)   # 🔥 STRONG floor
-        elif op_margin > 0.15:
-            growth += 0.01
-            growth = max(growth, 0.05)
-        elif op_margin < 0.10:
-            growth -= 0.01
+    # -----------------------------
+    # 2️⃣ Discount Rate (CAPM)
+    # -----------------------------
+    discount = risk_free + beta * erp
+    discount += event_discount_adj
 
     # -----------------------------
-    # Risk adjustment
+    # ROIC-Based Growth
     # -----------------------------
-    if discount > 0.10:
-        growth -= 0.005  # reduce penalty (was too harsh)
-
-    # -----------------------------
-    # Strength adjustment (discount)
-    # -----------------------------
-    if op_margin and op_margin > 0.25:
-        discount -= 0.015   # 🔥 slightly stronger reduction
     
-    # -----------------------------
-    # Discount cap for quality firms
-    # -----------------------------
-    if op_margin and op_margin > 0.20:
-        discount = min(discount, 0.085)
+    roic = estimate_roic(snapshot_metrics)
+    reinvestment = estimate_reinvestment_rate(snapshot_metrics)
 
-    # -----------------------------
-    # 3️⃣ Safeguards (CRITICAL)
-    # -----------------------------
-    # Cap extreme values
-    growth = max(min(growth, 0.15), -0.05)        # -5% to 15%
-    discount = max(min(discount, 0.20), 0.05)     # 5% to 20%
+    # Build growth components cleanly
+    growth_components = []
 
-    # -----------------------------
-    # Spread control (CRITICAL)
-    # -----------------------------
-    if discount - growth > 0.05:
-        growth += 0.01  # tighten unrealistic gap
+    # ROIC-driven growth
+    if roic is not None and reinvestment is not None:
+        growth_components.append(roic * reinvestment)
 
-    # Ensure discount > growth
+    # Base growth fallback (only if valid)
+    if base_growth is not None:
+        growth_components.append(base_growth)
+
+    # If nothing available → skip valuation (no fake numbers)
+    if not growth_components:
+        raise ValueError("Unable to compute growth: no valid inputs")
+
+    # Combine signals (average = no arbitrary dominance)
+    growth = sum(growth_components) / len(growth_components)
+
+    # Add event overlay (safe now)
+    if event_growth_adj is not None:
+        growth += event_growth_adj
+
+    # Profitability signal
+    if op_margin is not None:
+        growth += (op_margin - 0.15) * 0.2
+
+        
+    # -----------------------------
+    # 4️⃣ Safeguards
+    # -----------------------------
+    growth = max(min(growth, 0.15), -0.05)
+    discount = max(min(discount, 0.20), 0.05)
+
     if discount <= growth:
-        discount = growth + 0.02  # enforce spread
-
+        discount = growth + 0.02
 
     # -----------------------------
-    # 4️⃣ Starting Cash Flow (UPDATED)
+    # 5️⃣ Terminal Assumption
     # -----------------------------
+    terminal_growth = 0.025
 
+    if discount <= terminal_growth:
+        discount = terminal_growth + 0.02
+
+    # -----------------------------
+    # 6️⃣ Base Cash Flow
+    # -----------------------------
     fcf = snapshot_metrics.get("Free Cash Flow")
 
-    
-    if fcf is not None:
+    if fcf:
         base_cf = fcf
     elif snapshot_metrics.get("Operating Income"):
-        # fallback ONLY if FCF missing
-        tax_rate = 0.21
-        base_cf = snapshot_metrics["Operating Income"] * (1 - tax_rate)
+        base_cf = snapshot_metrics["Operating Income"] * (1 - 0.21)
     else:
-        base_cf = 100  # last resort fallback
-    
+        base_cf = 100
+
     # -----------------------------
-    # 5️⃣ 5-Year Projection
+    # 7️⃣ Multi-Stage Projection
     # -----------------------------
     cash_flows = []
     cf = base_cf
 
-    for year in range(1, 6):
-        cf = cf * (1 + growth)
+    stage1_growth = growth
+
+    # Linear fade (years 4–5)
+    stage2_growths = []
+    for t in range(4, 6):
+        fade = (t - 3) / 2
+        g_t = stage1_growth * (1 - fade) + terminal_growth * fade
+        stage2_growths.append(g_t)
+
+    growth_schedule = [
+        stage1_growth,
+        stage1_growth,
+        stage1_growth,
+        stage2_growths[0],
+        stage2_growths[1]
+    ]
+
+    for year, g in enumerate(growth_schedule, start=1):
+        cf = cf * (1 + g)
         discounted_cf = cf / ((1 + discount) ** year)
 
         cash_flows.append({
             "year": year,
+            "growth": g,
             "projected_cf": cf,
             "discounted_cf": discounted_cf
         })
 
     # -----------------------------
-    # 6️⃣ Terminal Value
+    # 8️⃣ Terminal Value
     # -----------------------------
-    terminal_growth = 0.025  # justified: long-term GDP/inflation anchor
-
     final_cf = cash_flows[-1]["projected_cf"]
 
-    # Safety buffer to prevent explosion
-    spread = discount - terminal_growth
-
-    if spread < 0.015:
-        spread = 0.015  # enforce minimum spread
-
-    terminal_value = final_cf * (1 + terminal_growth) / spread
-
+    terminal_value = final_cf * (1 + terminal_growth) / (discount - terminal_growth)
     discounted_terminal = terminal_value / ((1 + discount) ** 5)
 
     # -----------------------------
-    # 7️⃣ Intrinsic Value
+    # 9️⃣ Intrinsic Value
     # -----------------------------
     pv_cash_flows = sum(cf["discounted_cf"] for cf in cash_flows)
-
     intrinsic_value = pv_cash_flows + discounted_terminal
 
     terminal_weight = discounted_terminal / intrinsic_value if intrinsic_value else 0
 
     # -----------------------------
-    # 🚨 Terminal Warning (ADD HERE)
-    # -----------------------------
-    if terminal_weight > 0.80:
-        print("⚠️ WARNING: Terminal value dominates valuation (>80%)")
-    elif terminal_weight > 0.70:
-        print("⚠️ Notice: High terminal dependence (>70%)")
-    
-    # -----------------------------
-    # 9️⃣ Diagnostics (NEW)
+    # 🔟 Diagnostics
     # -----------------------------
     diagnostics = {
         "Base CF": base_cf,
         "Final Year CF": final_cf,
-        "Sum PV (5Y)": pv_cash_flows,
-        "Discount - Growth Spread": discount - growth,
-        "Terminal Spread": discount - terminal_growth
+        "Stage 1 Growth": stage1_growth,
+        "Terminal Growth": terminal_growth,
+        "Discount Rate": discount,
+        "Spread (Discount - Growth)": discount - stage1_growth,
+        "Terminal Value Contribution (%)": terminal_weight,
+        "ROIC": roic,
+        "Reinvestment Rate": reinvestment
     }
 
-    # -----------------------------
-    # 8️⃣ Output
-    # -----------------------------
+    if terminal_weight > 0.80:
+        print("⚠️ WARNING: Terminal value >80%")
+
     return {
         "Intrinsic Value": intrinsic_value,
-        "Growth Used": growth,
-        "Discount Used": discount,
+        "5Y PV Cash Flows": pv_cash_flows,
         "Terminal Value": terminal_value,
         "Terminal Value Contribution (%)": terminal_weight,
-        "5Y PV Cash Flows": pv_cash_flows,
-        **diagnostics
+
+        # --- Growth ---
+        "Stage 1 Growth": stage1_growth,
+        "Stage 2 Growth (Year 4)": growth_schedule[3],
+        "Stage 2 Growth (Year 5)": growth_schedule[4],
+
+        # --- Discount ---
+        "Discount Used": discount,
+
+        # --- Details ---
+        "Projection Details": cash_flows,
+        "Diagnostics": diagnostics
     }
