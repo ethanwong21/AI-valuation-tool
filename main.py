@@ -59,7 +59,7 @@ def to_vertical_df(data_dict):
 
 def run_analysis(ticker):
 
-    os.makedirs("Code/outputs", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
 
     print(f"\n===== RUNNING WORKFLOW FOR {ticker.upper()} =====")
 
@@ -158,7 +158,7 @@ def run_analysis(ticker):
     # ----------------------------------
     # 9️⃣ Excel Output
     # ----------------------------------
-    output_path = f"Code/outputs/{ticker.upper()}_analysis.xlsx"
+    output_path = f"outputs/{ticker.upper()}_analysis.xlsx"
 
     # ----------------------------------
     # 🔟 Valuation Engine (NEW)
