@@ -16,6 +16,7 @@ from agents.event_engine_agent import run_event_engine
 from agents.event_impact_agent import aggregate_event_impacts
 from agents.valuation_agent import run_scenario_dcf, run_sensitivity_analysis
 from agents.signal_agent import generate_investment_signal, get_market_data
+from agents.memo_agent import generate_investment_memo
 
 try:
     from agents.data_inputs_agent import build_data_inputs
@@ -205,6 +206,20 @@ def run_analysis(ticker):
         )
 
         print("Signal generated.")
+
+    # ----------------------------------
+    # 📝 Investment Memo
+    # ----------------------------------
+    memo_dict, memo_text = None, None
+    if signal_output and scenario_output:
+        memo_dict, memo_text = generate_investment_memo(
+            signal_output,
+            scenario_output,
+            risk_report,
+            event_report
+        )
+        if memo_dict:
+            print("Investment memo computed.")
 
     # ----------------------------------
     # 🔗 Combine Valuation + Signal
@@ -533,6 +548,44 @@ def run_analysis(ticker):
                                 r[col_idx].number_format = '$#,##0'
                             else:
                                 r[col_idx].number_format = '$#,##0.00'
+
+            # ==================================
+            # 09 INVESTMENT MEMO
+            # ==================================
+            if memo_dict and memo_text:
+                sheet_name_memo = "09_Investment_Memo"
+                row_idx = 0
+
+                import openpyxl
+                from openpyxl.styles import Alignment
+
+                # Top Natural Language Summary
+                pd.DataFrame([[memo_text]]).to_excel(
+                    writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False
+                )
+                
+                memo_ws = writer.sheets[sheet_name_memo]
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                memo_ws.cell(row=row_idx+1, column=1).alignment = Alignment(wrap_text=True)
+                memo_ws.column_dimensions['A'].width = 80
+                
+                row_idx += 2
+
+                # Dump memo_dict sections
+                for section_name, metrics in memo_dict.items():
+                    # Section Header
+                    pd.DataFrame([[f"--- {section_name.upper()} ---"]]).to_excel(
+                        writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False
+                    )
+                    memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                    row_idx += 1
+
+                    # Section Data
+                    section_df = to_vertical_df(metrics)
+                    section_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                    format_section(memo_ws, row_idx+1, len(section_df))
+
+                    row_idx += len(section_df) + 2
 
             print(f"\nExcel report saved: {output_path}")
             print("\n===== ANALYSIS COMPLETE =====")
