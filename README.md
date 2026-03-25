@@ -4,19 +4,19 @@ A Python-based financial analysis system that integrates **SEC filings, macro da
 
 ---
 
-## 🚀 Overview
+## Overview
 
 This project builds an end-to-end valuation pipeline that moves beyond static DCF models by incorporating:
 
-* 📄 Financial data from SEC EDGAR filings
-* 🌍 Macro inputs (risk-free rate, equity risk premium)
-* ⚠️ Event-driven adjustments (legal, governance, capital structure)
-* 🧠 Forward-looking valuation logic
-* 📈 Automated investment signal generation
+* Financial data from SEC EDGAR filings
+* Macro inputs (risk-free rate, equity risk premium)
+* Event-driven adjustments (legal, governance, capital structure)
+* Forward-looking valuation logic
+* Automated investment signal generation
 
 ---
 
-## 🧱 System Architecture
+## System Architecture
 
 ```text
 SEC Filings (EDGAR)
@@ -36,7 +36,7 @@ Structured Output (Excel)
 
 ---
 
-## ⚙️ Key Features
+## Key Features
 
 ### 📊 Financial Analysis
 
@@ -46,7 +46,7 @@ Structured Output (Excel)
 
 ---
 
-### ⚠️ Event Intelligence
+### Event Intelligence
 
 * Detects corporate events from filings:
 
@@ -60,7 +60,7 @@ Structured Output (Excel)
 
 ---
 
-### 📉 Valuation Engine
+### Valuation Engine
 
 * Multi-year Discounted Cash Flow (DCF) model
 * Uses event-adjusted growth and discount rates
@@ -69,7 +69,7 @@ Structured Output (Excel)
 
 ---
 
-### 📊 Signal Generation
+### Signal Generation
 
 * Converts valuation outputs into interpretable signals:
 
@@ -78,7 +78,7 @@ Structured Output (Excel)
 
 ---
 
-### 📁 Reporting Layer
+### Reporting Layer
 
 * Produces structured outputs combining:
 
@@ -90,7 +90,7 @@ Structured Output (Excel)
 
 ---
 
-## 🧠 Methodology
+## Methodology
 
 The system is designed to reflect how analysts think by:
 
@@ -100,7 +100,7 @@ The system is designed to reflect how analysts think by:
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 * Python
 * Pandas
@@ -111,16 +111,14 @@ The system is designed to reflect how analysts think by:
 
 ---
 
-## 🚧 Future Improvements
+## Future Improvements
 
-* Multi-stage DCF (growth fade modeling)
-* ROIC-driven growth modeling
 * Scenario analysis (Bull / Base / Bear)
 * Sensitivity analysis (growth vs discount)
 
 ---
 
-## 💡 Motivation
+## Motivation
 
 Traditional valuation models are often static and fail to reflect real-world developments.
 
@@ -132,13 +130,15 @@ This project aims to build a system that is:
 
 ---
 
-## 📌 Disclaimer
+## Disclaimer
 
 This project is for educational and research purposes only and does not constitute investment advice.
 
 ---
 
-## 👤 Author
+## Author
 
 Ethan Wong
-Finance & Accounting | Interested in Valuation, Markets, and Tech
+Finance, Accounting & Economics student 
+Purdue University 
+| Interested in Markets and Tech
