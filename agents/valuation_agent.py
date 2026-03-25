@@ -51,7 +51,7 @@ def estimate_reinvestment_rate(snapshot_metrics):
 
 
 
-def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_multiplier=1.0, shares_outstanding=None):
+def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_multiplier=1.0, shares_outstanding=None, override_growth=None, override_discount=None):
     """
     Analyst-grade 2-stage DCF
     """
@@ -73,11 +73,14 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_m
     # -----------------------------
     # 2️⃣ Discount Rate (CAPM)
     # -----------------------------
-    discount = risk_free + beta * erp
-    discount += event_discount_adj
+    if override_discount is not None:
+        discount = override_discount
+    else:
+        discount = risk_free + beta * erp
+        discount += event_discount_adj
 
     # -----------------------------
-    # ROIC-Based Growth
+    # 3️⃣ Growth Rate Synthesis
     # -----------------------------
     
     roic = estimate_roic(snapshot_metrics)
@@ -111,6 +114,9 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_m
 
     # Apply scenario growth multiplier
     growth *= growth_multiplier
+
+    if override_growth is not None:
+        growth = override_growth
         
     # -----------------------------
     # 4️⃣ Safeguards
@@ -272,3 +278,37 @@ def run_scenario_dcf(data_inputs, event_impact, snapshot_metrics=None, shares_ou
         "Base": base_output,
         "Bull": bull_output
     }
+
+def run_sensitivity_analysis(data_inputs, event_impact, snapshot_metrics=None, shares_outstanding=None):
+    """
+    Builds a 2D sensitivity matrix simulating Intrinsic Value across
+    various Growth and Discount rates.
+    """
+    import numpy as np
+    import pandas as pd
+
+    # 3% to 10% growth
+    growth_rates = np.arange(0.03, 0.11, 0.01)
+    
+    # 7% to 12% discount
+    discount_rates = np.arange(0.07, 0.13, 0.01)
+
+    results = []
+
+    for g in growth_rates:
+        row = {"Growth Rate": g}
+        for d in discount_rates:
+            val_output = run_dcf_valuation(
+                data_inputs, event_impact, snapshot_metrics,
+                shares_outstanding=shares_outstanding,
+                override_growth=g,
+                override_discount=d
+            )
+            val = val_output.get("Intrinsic Value Per Share") or val_output.get("Intrinsic Value")
+            
+            # Label the column dynamically as a percentage string
+            col_name = f"{d:.1%}"
+            row[col_name] = val
+        results.append(row)
+
+    return pd.DataFrame(results)

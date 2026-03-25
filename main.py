@@ -14,7 +14,7 @@ from agents.working_capital_agent import run_working_capital_engine
 from agents.risk_scoring_agent import run_risk_scoring_layer
 from agents.event_engine_agent import run_event_engine
 from agents.event_impact_agent import aggregate_event_impacts
-from agents.valuation_agent import run_scenario_dcf
+from agents.valuation_agent import run_scenario_dcf, run_sensitivity_analysis
 from agents.signal_agent import generate_investment_signal, get_market_data
 
 try:
@@ -166,6 +166,7 @@ def run_analysis(ticker):
     # ----------------------------------
     scenario_output = {}
     valuation_output = None
+    sensitivity_df = None
 
     market_data = None
     shares_outstanding = None
@@ -180,6 +181,13 @@ def run_analysis(ticker):
             shares_outstanding=shares_outstanding
         )
         valuation_output = scenario_output.get("Base")
+        
+        sensitivity_df = run_sensitivity_analysis(
+            data_inputs,
+            event_impact,
+            snapshot_metrics,
+            shares_outstanding=shares_outstanding
+        )
 
         print("Valuation computed.")
 
@@ -497,6 +505,34 @@ def run_analysis(ticker):
                 sc_ws = writer.sheets[sheet_name_sc]
                 # Format section takes starting data row (2)
                 format_section(sc_ws, 2, len(sc_df))
+
+            # ==================================
+            # 08 SENSITIVITY ANALYSIS
+            # ==================================
+            if sensitivity_df is not None:
+                sheet_name_sens = "08_Sensitivity_Analysis"
+                
+                # Write to Excel
+                sensitivity_df.to_excel(writer, sheet_name=sheet_name_sens, index=False)
+                
+                sens_ws = writer.sheets[sheet_name_sens]
+                
+                # Ensure headers are bold
+                for cell in sens_ws[1]:
+                    cell.font = bold_font
+                    
+                # Format matrix
+                for r in sens_ws.iter_rows(min_row=2, max_row=1+len(sensitivity_df)):
+                    # First column is Growth Rate -> Format as %
+                    r[0].number_format = '0.00%'
+                    # Values -> Currency/Decimals
+                    for col_idx in range(1, len(r)):
+                        val = r[col_idx].value
+                        if isinstance(val, (int, float)):
+                            if abs(val) >= 1_000_000:
+                                r[col_idx].number_format = '$#,##0'
+                            else:
+                                r[col_idx].number_format = '$#,##0.00'
 
             print(f"\nExcel report saved: {output_path}")
             print("\n===== ANALYSIS COMPLETE =====")
