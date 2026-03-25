@@ -14,7 +14,7 @@ from agents.working_capital_agent import run_working_capital_engine
 from agents.risk_scoring_agent import run_risk_scoring_layer
 from agents.event_engine_agent import run_event_engine
 from agents.event_impact_agent import aggregate_event_impacts
-from agents.valuation_agent import run_dcf_valuation
+from agents.valuation_agent import run_scenario_dcf
 from agents.signal_agent import generate_investment_signal, get_market_data
 
 try:
@@ -164,14 +164,22 @@ def run_analysis(ticker):
     # ----------------------------------
     # 🔟 Valuation Engine
     # ----------------------------------
+    scenario_output = {}
     valuation_output = None
 
+    market_data = None
+    shares_outstanding = None
     if data_inputs:
-        valuation_output = run_dcf_valuation(
+        market_data = get_market_data(ticker)
+        shares_outstanding = market_data.get("Shares Outstanding")
+
+        scenario_output = run_scenario_dcf(
             data_inputs,
             event_impact,
-            snapshot_metrics
+            snapshot_metrics,
+            shares_outstanding=shares_outstanding
         )
+        valuation_output = scenario_output.get("Base")
 
         print("Valuation computed.")
 
@@ -180,9 +188,7 @@ def run_analysis(ticker):
     # ----------------------------------
     signal_output = None
 
-    if valuation_output and data_inputs:
-
-        market_data = get_market_data(ticker)
+    if valuation_output and data_inputs and market_data:
 
         signal_output = generate_investment_signal(
             valuation_output,
@@ -207,8 +213,14 @@ def run_analysis(ticker):
         combined_output["Upside (%)"] = signal_output.get("Upside (%)")
         combined_output["Market Price"] = signal_output.get("Market Price")
         combined_output["Shares Outstanding"] = market_data.get("Shares Outstanding")
+        
+        # --- Value Output ---
+        combined_output["Enterprise Value"] = valuation_output.get("Enterprise Value")
+        combined_output["Net Debt"] = valuation_output.get("Net Debt")
+        combined_output["Equity Value"] = valuation_output.get("Equity Value")
+        
         combined_output["Intrinsic Value (Total)"] = valuation_output.get("Intrinsic Value")
-        combined_output["Intrinsic Value (Per Share)"] = signal_output.get("Intrinsic Value (Per Share)")
+        combined_output["Intrinsic Value (Per Share)"] = valuation_output.get("Intrinsic Value Per Share")
 
         # --- Valuation ---
         combined_output["5Y PV Cash Flows"] = valuation_output.get("5Y PV Cash Flows")
@@ -452,6 +464,39 @@ def run_analysis(ticker):
             # 🔥 FIX 2: format ONLY data rows (skip header)
             # -----------------------------
             format_section(ws, row + 1, len(projection_df))
+
+            # ==================================
+            # 07 SCENARIO ANALYSIS
+            # ==================================
+            if scenario_output:
+                sheet_name_sc = "07_Scenario_Analysis"
+                
+                # Check if we have market data
+                market_price = combined_output.get("Market Price") if combined_output else None
+                shares_out = combined_output.get("Shares Outstanding") if combined_output else None
+
+                scenario_rows = []
+                for sc_name, sc_val in scenario_output.items():
+                    intr_val = sc_val.get("Intrinsic Value")
+                    upside = None
+                    if market_price and shares_out and intr_val:
+                        intr_per_share = intr_val / shares_out
+                        upside = (intr_per_share / market_price) - 1
+
+                    scenario_rows.append({
+                        "Scenario": sc_name,
+                        "Intrinsic Value": intr_val,
+                        "Upside": upside,
+                        "Growth": sc_val.get("Stage 1 Growth"),
+                        "Discount": sc_val.get("Discount Used")
+                    })
+
+                sc_df = pd.DataFrame(scenario_rows)
+                sc_df.to_excel(writer, sheet_name=sheet_name_sc, index=False)
+                
+                sc_ws = writer.sheets[sheet_name_sc]
+                # Format section takes starting data row (2)
+                format_section(sc_ws, 2, len(sc_df))
 
             print(f"\nExcel report saved: {output_path}")
             print("\n===== ANALYSIS COMPLETE =====")

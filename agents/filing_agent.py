@@ -247,6 +247,16 @@ def analyze_filing(facts_json):
     inventory = get_concept_value(facts_json, ["inventory"])
     accounts_payable = get_concept_value(facts_json, ["payable"])
 
+    cash_and_equivalents = get_concept_value(facts_json, ["cashandcashequivalentsatcarryingvalue", "cash"])
+    short_term_debt = get_concept_value(facts_json, ["shorttermdebt", "debtcurrent"]) or 0
+    long_term_debt = get_concept_value(facts_json, ["longtermdebt", "debtnoncurrent"]) or 0
+    total_debt = get_concept_value(facts_json, ["debtandcapitalleases", "totaldebt"])
+    if total_debt is None:
+        if short_term_debt or long_term_debt:
+            total_debt = short_term_debt + long_term_debt
+        else:
+            total_debt = get_concept_value(facts_json, ["debt"])
+
     # -------- Working Capital --------
     dso = (accounts_receivable / revenue * 365) if accounts_receivable and revenue else None
     dio = (inventory / cogs * 365) if inventory and cogs else None
@@ -276,5 +286,8 @@ def analyze_filing(facts_json):
         "DPO": dpo,
         "Cash Conversion Cycle": ccc,
 
-        "Free Cash Flow": free_cash_flow
+        "Free Cash Flow": free_cash_flow,
+
+        "Cash & Equivalents": cash_and_equivalents,
+        "Total Debt": total_debt
     }

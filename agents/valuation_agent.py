@@ -51,7 +51,7 @@ def estimate_reinvestment_rate(snapshot_metrics):
 
 
 
-def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
+def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_multiplier=1.0, shares_outstanding=None):
     """
     Analyst-grade 2-stage DCF
     """
@@ -109,6 +109,8 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
     if op_margin is not None:
         growth += (op_margin - 0.15) * 0.2
 
+    # Apply scenario growth multiplier
+    growth *= growth_multiplier
         
     # -----------------------------
     # 4️⃣ Safeguards
@@ -182,12 +184,26 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
     discounted_terminal = terminal_value / ((1 + discount) ** 5)
 
     # -----------------------------
-    # 9️⃣ Intrinsic Value
+    # 9️⃣ Intrinsic Value (Enterprise Value)
     # -----------------------------
     pv_cash_flows = sum(cf["discounted_cf"] for cf in cash_flows)
-    intrinsic_value = pv_cash_flows + discounted_terminal
+    enterprise_value = pv_cash_flows + discounted_terminal
 
-    terminal_weight = discounted_terminal / intrinsic_value if intrinsic_value else 0
+    terminal_weight = discounted_terminal / enterprise_value if enterprise_value else 0
+
+    # -----------------------------
+    # 🔟 Equity Value Conversion
+    # -----------------------------
+    snapshot_metrics = snapshot_metrics or {}
+    cash = snapshot_metrics.get("Cash & Equivalents") or 0
+    debt = snapshot_metrics.get("Total Debt") or 0
+    net_debt = debt - cash
+
+    equity_value = enterprise_value - net_debt
+
+    intrinsic_per_share = None
+    if shares_outstanding and shares_outstanding > 0:
+        intrinsic_per_share = equity_value / shares_outstanding
 
     # -----------------------------
     # 🔟 Diagnostics
@@ -208,7 +224,11 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
         print("⚠️ WARNING: Terminal value >80%")
 
     return {
-        "Intrinsic Value": intrinsic_value,
+        "Enterprise Value": enterprise_value,
+        "Net Debt": net_debt,
+        "Equity Value": equity_value,
+        "Intrinsic Value": equity_value, # Maintain for compatibility
+        "Intrinsic Value Per Share": intrinsic_per_share,
         "5Y PV Cash Flows": pv_cash_flows,
         "Terminal Value": terminal_value,
         "Terminal Value Contribution (%)": terminal_weight,
@@ -224,4 +244,31 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None):
         # --- Details ---
         "Projection Details": cash_flows,
         "Diagnostics": diagnostics
+    }
+
+def run_scenario_dcf(data_inputs, event_impact, snapshot_metrics=None, shares_outstanding=None):
+    """
+    Runs the full DCF model separately for Bear, Base, and Bull scenarios.
+    """
+    import copy
+
+    # Base Case
+    base_output = run_dcf_valuation(data_inputs, event_impact, snapshot_metrics, shares_outstanding=shares_outstanding)
+
+    # Bear Case (lower growth, higher discount)
+    bear_inputs = copy.deepcopy(data_inputs)
+    if bear_inputs and "Adjusted ERP (Used)" in bear_inputs:
+        bear_inputs["Adjusted ERP (Used)"] += 0.015
+    bear_output = run_dcf_valuation(bear_inputs, event_impact, snapshot_metrics, growth_multiplier=0.8, shares_outstanding=shares_outstanding)
+
+    # Bull Case (higher growth, lower discount)
+    bull_inputs = copy.deepcopy(data_inputs)
+    if bull_inputs and "Adjusted ERP (Used)" in bull_inputs:
+        bull_inputs["Adjusted ERP (Used)"] -= 0.015
+    bull_output = run_dcf_valuation(bull_inputs, event_impact, snapshot_metrics, growth_multiplier=1.2, shares_outstanding=shares_outstanding)
+
+    return {
+        "Bear": bear_output,
+        "Base": base_output,
+        "Bull": bull_output
     }

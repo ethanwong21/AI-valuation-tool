@@ -8,7 +8,9 @@ def generate_investment_signal(valuation_output, market_data, inputs):
     shares_outstanding = market_data.get("Shares Outstanding")
 
     # Convert to per-share value
-    intrinsic_per_share = intrinsic_value / shares_outstanding
+    intrinsic_per_share = valuation_output.get("Intrinsic Value Per Share")
+    if intrinsic_per_share is None and shares_outstanding and shares_outstanding > 0:
+        intrinsic_per_share = intrinsic_value / shares_outstanding
     
     growth = valuation_output.get("Stage 1 Growth")
     discount = valuation_output.get("Discount Used")
