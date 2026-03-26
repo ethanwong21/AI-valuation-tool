@@ -41,7 +41,7 @@ def generate_investment_memo(signal_output, scenario_output, risk_report, event_
     key_event_risks = []
     if isinstance(event_report, list):
         for e in event_report:
-            if e.get("Event Risk Score", 0) >= 60:
+            if e.get("Adjusted Risk Score", 0) >= 60:
                 key_event_risks.append(e.get("Event Summary", "Unknown Risk Event"))
     
     key_event_str = ", ".join(key_event_risks) if key_event_risks else "No high-risk events detected."

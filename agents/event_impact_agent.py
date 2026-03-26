@@ -14,20 +14,20 @@ def map_event_to_impact(event):
     # -----------------------------
     # GROWTH EVENTS
     # -----------------------------
-    if "acquisition" in event_type:
+    if "acquis" in event_type or "merg" in event_type:
         growth_adj += 0.003
         discount_adj += 0.001
 
     # -----------------------------
     # DISCOUNT / RISK EVENTS
     # -----------------------------
-    if "debt" in event_type:
+    if "debt" in event_type or "credit" in event_type:
         discount_adj += 0.002
 
-    elif "governance" in event_type:
+    elif "govern" in event_type or "leader" in event_type:
         discount_adj += 0.001
 
-    elif "legal" in event_type:
+    elif "legal" in event_type or "regulat" in event_type:
         discount_adj += 0.003
 
     return {
@@ -37,7 +37,7 @@ def map_event_to_impact(event):
 
 def aggregate_event_impacts(event_report):
     """
-    Aggregate events with normalization + caps
+    Aggregate events with WEIGHTED NORMALIZATION + caps
     """
 
     total_growth = 0
@@ -47,27 +47,18 @@ def aggregate_event_impacts(event_report):
 
     for event in event_report:
         impact = map_event_to_impact(event)
+        
+        # Pull generated weight (Default safely to 0.5)
+        weight = event.get("Event Weight", 0.5)
 
-        total_growth += impact["growth_adjustment"]
-        total_discount += impact["discount_adjustment"]
-
-    # ----------------------------
-    # Normalize (average effect)
-    # ----------------------------
-    if event_count > 0:
-
-        import math
-
-        scale = min(math.sqrt(event_count), 10)
-
-        total_growth /= scale
-        total_discount /= scale
+        total_growth += impact["growth_adjustment"] * weight
+        total_discount += impact["discount_adjustment"] * weight
 
     # ----------------------------
-    # Cap impacts (VERY IMPORTANT)
+    # Cap impacts (VERY IMPORTANT bounds of +/- 0.03)
     # ----------------------------
-    total_growth = min(total_growth, 0.03)
-    total_discount = min(total_discount, 0.03)
+    total_growth = max(-0.03, min(total_growth, 0.03))
+    total_discount = max(-0.03, min(total_discount, 0.03))
 
     return {
         "Total Growth Adjustment": total_growth,

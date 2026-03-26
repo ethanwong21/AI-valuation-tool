@@ -5,6 +5,7 @@ load_dotenv()
 
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 SEC_USER_EMAIL = os.getenv("SEC_USER_EMAIL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not FRED_API_KEY:
     raise ValueError("Missing FRED_API_KEY in .env")
