@@ -52,9 +52,7 @@ def estimate_reinvestment_rate(snapshot_metrics):
 
 
 def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_multiplier=1.0, shares_outstanding=None, override_growth=None, override_discount=None):
-    """
-    Analyst-grade 2-stage DCF
-    """
+    
 
     # -----------------------------
     # 1️⃣ Inputs
@@ -148,14 +146,33 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_m
         base_cf = 100
 
     # -----------------------------
-    # 7️⃣ Multi-Stage Projection
+    # 7️⃣ Multi-Stage Projection (Revenue -> NOPAT -> FCF)
     # -----------------------------
     cash_flows = []
-    cf = base_cf
-
+    
     stage1_growth = growth
 
-    # Linear fade (years 4–5)
+    # Safely extract explicit base metrics required for Revenue pipeline
+    snapshot_metrics = snapshot_metrics or {}
+    base_revenue = snapshot_metrics.get("Revenue")
+    if not base_revenue or base_revenue <= 0:
+        base_revenue = 1000  # Safe Fallback
+        
+    margin_baseline = snapshot_metrics.get("Operating Margin")
+    if margin_baseline is None:
+        margin_baseline = 0.15     # Standard assumption
+        
+    tax_rate = snapshot_metrics.get("Tax Rate", 0.21)
+
+    # Derive mathematically rigorous Reinvestment requirements natively from ROIC dependencies
+    if roic and roic > 0:
+        reinvestment_rate = growth / roic
+    else:
+        reinvestment_rate = reinvestment if reinvestment is not None else 0.50
+        
+    reinvestment_rate = max(min(reinvestment_rate, 0.80), 0.10)
+
+    # Linear fading (years 4–5)
     stage2_growths = []
     for t in range(4, 6):
         fade = (t - 3) / 2
@@ -170,14 +187,34 @@ def run_dcf_valuation(data_inputs, event_impact, snapshot_metrics=None, growth_m
         stage2_growths[1]
     ]
 
+    current_revenue = base_revenue
+    
     for year, g in enumerate(growth_schedule, start=1):
-        cf = cf * (1 + g)
-        discounted_cf = cf / ((1 + discount) ** year)
+        # 1. Scale Revenue
+        current_revenue = current_revenue * (1 + g)
+        
+        # 2. Extract Margin Structure -> EBIT
+        ebit = current_revenue * margin_baseline
+        
+        # 3. Assess NOPAT boundaries
+        nopat = ebit * (1 - tax_rate)
+        
+        # 4. Define precise Reinvestment overheads
+        reinv_amount = nopat * reinvestment_rate
+        
+        # 5. Extract unencumbered Free Cash Flow
+        fcf_projected = nopat - reinv_amount
+        
+        discounted_cf = fcf_projected / ((1 + discount) ** year)
 
         cash_flows.append({
             "year": year,
+            "revenue": current_revenue,
             "growth": g,
-            "projected_cf": cf,
+            "margin": margin_baseline,
+            "nopat": nopat,
+            "reinvestment": reinv_amount,
+            "projected_cf": fcf_projected,
             "discounted_cf": discounted_cf
         })
 

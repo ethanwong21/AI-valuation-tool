@@ -16,7 +16,7 @@ from agents.event_engine_agent import run_event_engine
 from agents.event_impact_agent import aggregate_event_impacts
 from agents.valuation_agent import run_scenario_dcf, run_sensitivity_analysis
 from agents.signal_agent import generate_investment_signal, get_market_data
-from agents.memo_agent import generate_investment_memo
+from agents.memo_agent import generate_investment_decision
 
 try:
     from agents.data_inputs_agent import build_data_inputs
@@ -210,16 +210,16 @@ def run_analysis(ticker):
     # ----------------------------------
     # 📝 Investment Memo
     # ----------------------------------
-    memo_dict, memo_text = None, None
+    decision_dict, analyst_paragraph, analyst_block = None, None, None
     if signal_output and scenario_output:
-        memo_dict, memo_text = generate_investment_memo(
+        decision_dict, analyst_paragraph, analyst_block = generate_investment_decision(
             signal_output,
             scenario_output,
             risk_report,
             event_report
         )
-        if memo_dict:
-            print("Investment memo computed.")
+        if decision_dict:
+            print("Investment decision layer computed.")
 
     # ----------------------------------
     # 🔗 Combine Valuation + Signal
@@ -285,7 +285,7 @@ def run_analysis(ticker):
                     # PERCENT FIELDS
                     # -----------------------------
                     elif any(x in header for x in [
-                        "growth", "discount", "spread", "rate", "contribution"
+                        "growth", "discount", "spread", "rate", "contribution", "margin"
                     ]):
                         cell.number_format = '0.00%'
 
@@ -467,9 +467,13 @@ def run_analysis(ticker):
             # -----------------------------
             projection_df = pd.DataFrame(valuation_output["Projection Details"])
 
-            # 🔥 FIX 1: enforce correct data types
+            # 🔥 FIX 1: enforce correct data types natively bound to projection pipeline updates
             projection_df["year"] = projection_df["year"].astype(int)
+            projection_df["revenue"] = projection_df["revenue"].astype(float)
             projection_df["growth"] = projection_df["growth"].astype(float)
+            projection_df["margin"] = projection_df["margin"].astype(float)
+            projection_df["nopat"] = projection_df["nopat"].astype(float)
+            projection_df["reinvestment"] = projection_df["reinvestment"].astype(float)
             projection_df["projected_cf"] = projection_df["projected_cf"].astype(float)
             projection_df["discounted_cf"] = projection_df["discounted_cf"].astype(float)
 
@@ -552,40 +556,76 @@ def run_analysis(ticker):
             # ==================================
             # 09 INVESTMENT MEMO
             # ==================================
-            if memo_dict and memo_text:
+            if decision_dict and analyst_paragraph and analyst_block:
                 sheet_name_memo = "09_Investment_Memo"
                 row_idx = 0
 
                 import openpyxl
                 from openpyxl.styles import Alignment
 
-                # Top Natural Language Summary
-                pd.DataFrame([[memo_text]]).to_excel(
-                    writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False
-                )
-                
-                memo_ws = writer.sheets[sheet_name_memo]
-                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
-                memo_ws.cell(row=row_idx+1, column=1).alignment = Alignment(wrap_text=True)
+                # Map column width precisely
+                memo_ws = writer.book.create_sheet(sheet_name_memo) if sheet_name_memo not in writer.book.sheetnames else writer.sheets[sheet_name_memo]
                 memo_ws.column_dimensions['A'].width = 80
-                
+                memo_ws.column_dimensions['B'].width = 80
+
+                # 1. SUMMARY
+                pd.DataFrame([["--- SUMMARY ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                sum_df = to_vertical_df(decision_dict["Summary"])
+                sum_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                format_section(memo_ws, row_idx+1, len(sum_df))
+                row_idx += len(sum_df) + 2
+
+                # 2. ANALYST SUMMARY (PARAGRAPH)
+                pd.DataFrame([["--- ANALYST VIEW ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                pd.DataFrame([[analyst_paragraph]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).alignment = Alignment(wrap_text=True)
                 row_idx += 2
 
-                # Dump memo_dict sections
-                for section_name, metrics in memo_dict.items():
-                    # Section Header
-                    pd.DataFrame([[f"--- {section_name.upper()} ---"]]).to_excel(
-                        writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False
-                    )
-                    memo_ws.cell(row=row_idx+1, column=1).font = bold_font
-                    row_idx += 1
+                # 3. ANALYST SUMMARY BLOCK
+                pd.DataFrame([["--- ANALYST SUMMARY BLOCK ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                pd.DataFrame([[analyst_block]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).alignment = Alignment(wrap_text=True)
+                row_idx += 2
 
-                    # Section Data
-                    section_df = to_vertical_df(metrics)
-                    section_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
-                    format_section(memo_ws, row_idx+1, len(section_df))
+                # 4. SCENARIOS
+                pd.DataFrame([["--- SCENARIOS ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                scen_df = to_vertical_df(decision_dict["Scenarios"])
+                scen_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                format_section(memo_ws, row_idx+1, len(scen_df))
+                row_idx += len(scen_df) + 2
 
-                    row_idx += len(section_df) + 2
+                # 5. DRIVERS
+                pd.DataFrame([["--- DRIVERS ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                drv_df = to_vertical_df(decision_dict["Drivers"])
+                drv_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                row_idx += len(drv_df) + 2
+
+                # 6. RISKS
+                pd.DataFrame([["--- RISKS ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                rsk_df = to_vertical_df(decision_dict["Risks"])
+                rsk_df.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                row_idx += len(rsk_df) + 2
+
+                # 7. DIAGNOSTICS
+                pd.DataFrame([["--- DIAGNOSTICS ---"]]).to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False, header=False)
+                memo_ws.cell(row=row_idx+1, column=1).font = bold_font
+                row_idx += 1
+                diag_df2 = to_vertical_df(decision_dict["Diagnostics"])
+                diag_df2.to_excel(writer, sheet_name=sheet_name_memo, startrow=row_idx, index=False)
+                format_section(memo_ws, row_idx+1, len(diag_df2))
+                row_idx += len(diag_df2) + 2
 
             print(f"\nExcel report saved: {output_path}")
             print("\n===== ANALYSIS COMPLETE =====")
