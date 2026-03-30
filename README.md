@@ -1,4 +1,4 @@
-# 📊 AI-Augmented Valuation & Investment Decision Engine
+# AI-Augmented Valuation & Investment Decision Engine
 
 A Python-based financial analysis system that integrates **SEC filings, macro data, and event-driven signals** to produce **dynamic, forward-looking equity valuations and investment signals**.
 
@@ -38,7 +38,7 @@ Structured Output (Excel)
 
 ## Key Features
 
-### 📊 Financial Analysis
+### Financial Analysis
 
 * Extracts revenue, margins, working capital, and free cash flow from XBRL data
 * Normalizes inconsistent filings and reconstructs key metrics
