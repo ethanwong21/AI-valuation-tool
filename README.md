@@ -1,3 +1,5 @@
+Ported to tickerwork bench for vercel deployment
+
 # AI-Augmented Valuation & Investment Decision Engine
 
 A Python-based financial analysis system that integrates **SEC filings, macro data, and event-driven signals** to produce **dynamic, forward-looking equity valuations and investment signals**.
